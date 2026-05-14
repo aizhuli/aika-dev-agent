@@ -5,26 +5,22 @@ namespace Aica;
 
 public class Settings
 {
-    [JsonPropertyName("api_key")]
-    public string? ApiKey { get; set; }
-
     [JsonPropertyName("default_model")]
     public string? DefaultModel { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public static string SettingsPath { get; } = Path.Combine(
+    public static string FilePath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         ".aica", "settings.json");
 
     public static Settings Load()
     {
-        if (!File.Exists(SettingsPath))
+        if (!File.Exists(FilePath))
             return new Settings();
-
         try
         {
-            var json = File.ReadAllText(SettingsPath);
+            var json = File.ReadAllText(FilePath);
             return JsonSerializer.Deserialize<Settings>(json, JsonOptions) ?? new Settings();
         }
         catch
@@ -35,8 +31,7 @@ public class Settings
 
     public void Save()
     {
-        var dir = Path.GetDirectoryName(SettingsPath)!;
-        Directory.CreateDirectory(dir);
-        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, JsonOptions));
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOptions));
     }
 }

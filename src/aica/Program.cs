@@ -3,7 +3,10 @@ using Aica;
 using Aica.Repl;
 using Spectre.Console;
 
-// ── Options & arguments ──────────────────────────────────────────────────────
+// Inject env.json into process environment before anything else reads it.
+EnvFile.Apply();
+
+// ── Options & arguments ───────────────────────────────────────────────────────
 
 var workdirOption = new Option<DirectoryInfo?>(
     "--workdir",
@@ -25,7 +28,7 @@ var promptArgument = new Argument<string?>(
     Arity = ArgumentArity.ZeroOrOne
 };
 
-// ── Root command ─────────────────────────────────────────────────────────────
+// ── Root command ──────────────────────────────────────────────────────────────
 
 var rootCommand = new RootCommand("aica — AI Coding Agent")
 {
@@ -52,87 +55,96 @@ rootCommand.SetHandler(async (workdir, model, yes, prompt) =>
 
 // ── config command ────────────────────────────────────────────────────────────
 
-var configCommand = new Command("config", "Manage aica settings");
+var configCommand = new Command("config", "Manage aica settings and environment variables");
 
 // config show
-var showCommand = new Command("show", "Show current configuration and settings file path");
+var showCommand = new Command("show", "Show current configuration, env.json contents, and file paths");
 showCommand.SetHandler(() =>
 {
+    var envVars  = EnvFile.Load();
     var settings = Settings.Load();
-    var apiKeyDisplay = string.IsNullOrWhiteSpace(settings.ApiKey)
-        ? "[dim]not set[/]"
-        : $"[green]set[/] [dim]({MaskKey(settings.ApiKey)})[/]";
-    var envKeyDisplay = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") is { } k && k.Length > 0
-        ? $"[green]set[/] [dim]({MaskKey(k)})[/]"
-        : "[dim]not set[/]";
-
-    var table = new Table().NoBorder().HideHeaders();
-    table.AddColumn("key");
-    table.AddColumn("value");
-    table.AddRow("Settings file",  $"[bold]{Markup.Escape(Settings.SettingsPath)}[/]");
-    table.AddRow("api_key (file)", apiKeyDisplay);
-    table.AddRow("api_key (env)",  envKeyDisplay);
-    table.AddRow("default_model",  settings.DefaultModel is { } m ? $"[bold]{m}[/]" : "[dim]not set[/]");
 
     AnsiConsole.WriteLine();
-    AnsiConsole.Write(table);
+    AnsiConsole.MarkupLine("[bold]Files[/]");
+    AnsiConsole.MarkupLine($"  env.json      {Markup.Escape(EnvFile.FilePath)}");
+    AnsiConsole.MarkupLine($"  settings.json {Markup.Escape(Settings.FilePath)}");
+
+    AnsiConsole.WriteLine();
+    AnsiConsole.MarkupLine("[bold]env.json[/]");
+    if (envVars.Count == 0)
+    {
+        AnsiConsole.MarkupLine("  [dim](empty)[/]");
+    }
+    else
+    {
+        foreach (var (key, value) in envVars)
+        {
+            var display = key.Contains("KEY") || key.Contains("TOKEN") || key.Contains("SECRET")
+                ? MaskValue(value)
+                : value;
+            AnsiConsole.MarkupLine($"  [bold]{Markup.Escape(key)}[/] = {Markup.Escape(display)}");
+        }
+    }
+
+    AnsiConsole.WriteLine();
+    AnsiConsole.MarkupLine("[bold]settings.json[/]");
+    AnsiConsole.MarkupLine(settings.DefaultModel is { } m
+        ? $"  default_model = [bold]{Markup.Escape(m)}[/]"
+        : "  default_model = [dim](not set)[/]");
+
     AnsiConsole.WriteLine();
 });
 
-// config set <key> <value>
-var setKeyArg   = new Argument<string>("key",   "Setting name: api-key | model");
+// config set <KEY> <value>
+var setKeyArg   = new Argument<string>("key",   "Environment variable name (e.g. ANTHROPIC_API_KEY) or 'model'");
 var setValueArg = new Argument<string>("value", "Value to store");
-var setCommand  = new Command("set", "Set a configuration value") { setKeyArg, setValueArg };
+var setCommand  = new Command("set", "Set an environment variable in env.json, or set default model") { setKeyArg, setValueArg };
+
 setCommand.SetHandler((key, value) =>
 {
-    var settings = Settings.Load();
-    switch (key.ToLower())
+    if (key.Equals("model", StringComparison.OrdinalIgnoreCase))
     {
-        case "api-key":
-        case "api_key":
-            settings.ApiKey = value;
-            settings.Save();
-            AnsiConsole.MarkupLine($"[green]✓[/] api_key saved to {Markup.Escape(Settings.SettingsPath)}");
-            break;
-        case "model":
-        case "default-model":
-        case "default_model":
-            settings.DefaultModel = value;
-            settings.Save();
-            AnsiConsole.MarkupLine($"[green]✓[/] default_model set to [bold]{Markup.Escape(value)}[/]");
-            break;
-        default:
-            AnsiConsole.MarkupLine($"[red]Unknown key:[/] {Markup.Escape(key)}. Valid keys: api-key, model");
-            Environment.Exit(1);
-            break;
+        var s = Settings.Load();
+        s.DefaultModel = value;
+        s.Save();
+        AnsiConsole.MarkupLine($"[green]✓[/] default_model = [bold]{Markup.Escape(value)}[/]  ({Markup.Escape(Settings.FilePath)})");
+        return;
     }
+
+    var vars = EnvFile.Load();
+    vars[key] = value;
+    EnvFile.Save(vars);
+
+    var display = key.Contains("KEY") || key.Contains("TOKEN") || key.Contains("SECRET")
+        ? MaskValue(value)
+        : value;
+    AnsiConsole.MarkupLine($"[green]✓[/] {Markup.Escape(key)} = {Markup.Escape(display)}  ({Markup.Escape(EnvFile.FilePath)})");
 }, setKeyArg, setValueArg);
 
-// config unset <key>
-var unsetKeyArg = new Argument<string>("key", "Setting name: api-key | model");
-var unsetCommand = new Command("unset", "Remove a configuration value") { unsetKeyArg };
+// config unset <KEY>
+var unsetKeyArg  = new Argument<string>("key", "Environment variable name or 'model'");
+var unsetCommand = new Command("unset", "Remove an entry from env.json or clear default model") { unsetKeyArg };
+
 unsetCommand.SetHandler((key) =>
 {
-    var settings = Settings.Load();
-    switch (key.ToLower())
+    if (key.Equals("model", StringComparison.OrdinalIgnoreCase))
     {
-        case "api-key":
-        case "api_key":
-            settings.ApiKey = null;
-            settings.Save();
-            AnsiConsole.MarkupLine("[green]✓[/] api_key removed");
-            break;
-        case "model":
-        case "default-model":
-        case "default_model":
-            settings.DefaultModel = null;
-            settings.Save();
-            AnsiConsole.MarkupLine("[green]✓[/] default_model removed");
-            break;
-        default:
-            AnsiConsole.MarkupLine($"[red]Unknown key:[/] {Markup.Escape(key)}");
-            Environment.Exit(1);
-            break;
+        var s = Settings.Load();
+        s.DefaultModel = null;
+        s.Save();
+        AnsiConsole.MarkupLine("[green]✓[/] default_model cleared");
+        return;
+    }
+
+    var vars = EnvFile.Load();
+    if (vars.Remove(key))
+    {
+        EnvFile.Save(vars);
+        AnsiConsole.MarkupLine($"[green]✓[/] {Markup.Escape(key)} removed from env.json");
+    }
+    else
+    {
+        AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(key)} was not in env.json[/]");
     }
 }, unsetKeyArg);
 
@@ -141,9 +153,9 @@ configCommand.AddCommand(setCommand);
 configCommand.AddCommand(unsetCommand);
 rootCommand.AddCommand(configCommand);
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-static string MaskKey(string key) =>
-    key.Length <= 8 ? "***" : $"{key[..8]}…";
+static string MaskValue(string v) =>
+    v.Length <= 8 ? "***" : $"{v[..8]}…";
 
 return await rootCommand.InvokeAsync(args);

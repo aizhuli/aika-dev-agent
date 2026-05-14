@@ -9,25 +9,23 @@ public class AppConfig
 
     public static AppConfig Load(DirectoryInfo? workdir, string model, bool autoApprove)
     {
-        var settings = Settings.Load();
-
-        // Priority: env var > settings file
-        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-                     ?? settings.ApiKey
-                     ?? string.Empty;
+        // EnvFile.Apply() has already been called in Program.cs before this point,
+        // so ANTHROPIC_API_KEY is available via Environment if it was in env.json.
+        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
-                $"No API key found. Set ANTHROPIC_API_KEY or run: aica config set api-key <key>\n" +
-                $"Settings file: {Settings.SettingsPath}");
+                $"No API key found.\n" +
+                $"  Run:  aica config set ANTHROPIC_API_KEY <your-key>\n" +
+                $"  Or:   set the ANTHROPIC_API_KEY environment variable\n" +
+                $"  File: {EnvFile.FilePath}");
 
-        // Priority: CLI flag > settings file > default
+        var settings = Settings.Load();
         var resolvedModel = model != "claude-sonnet-4-6"
             ? model
             : settings.DefaultModel ?? model;
 
         var resolvedWorkdir = workdir?.FullName ?? Directory.GetCurrentDirectory();
-
         if (!Directory.Exists(resolvedWorkdir))
             throw new DirectoryNotFoundException(
                 $"Working directory does not exist: {resolvedWorkdir}");
