@@ -9,11 +9,22 @@ public class AppConfig
 
     public static AppConfig Load(DirectoryInfo? workdir, string model, bool autoApprove)
     {
-        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
+        var settings = Settings.Load();
+
+        // Priority: env var > settings file
+        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+                     ?? settings.ApiKey
+                     ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
-                "ANTHROPIC_API_KEY environment variable is not set.");
+                $"No API key found. Set ANTHROPIC_API_KEY or run: aica config set api-key <key>\n" +
+                $"Settings file: {Settings.SettingsPath}");
+
+        // Priority: CLI flag > settings file > default
+        var resolvedModel = model != "claude-sonnet-4-6"
+            ? model
+            : settings.DefaultModel ?? model;
 
         var resolvedWorkdir = workdir?.FullName ?? Directory.GetCurrentDirectory();
 
@@ -24,7 +35,7 @@ public class AppConfig
         return new AppConfig
         {
             WorkingDirectory = resolvedWorkdir,
-            Model = model,
+            Model = resolvedModel,
             ApiKey = apiKey,
             AutoApprove = autoApprove
         };

@@ -11,6 +11,7 @@ A command-line software development agent powered by Claude. It reads, writes, e
 - **Sandboxed** — all file operations are restricted to the working directory; path traversal is rejected
 - **Ctrl+C cancellation** — abort the current request without killing the process
 - **Token tracking** — input/output token counts shown after every turn
+- **Local settings file** — store your API key in `~/.aica/settings.json` instead of env vars
 
 ## Prerequisites
 
@@ -24,7 +25,13 @@ git clone https://github.com/aizhuli/aika-dev-agent.git
 cd aika-dev-agent
 ```
 
-Set your API key:
+Set your API key using the built-in config command (recommended):
+
+```bash
+dotnet run --project src/aica -- config set api-key sk-ant-...
+```
+
+This saves your key to `~/.aica/settings.json`. Alternatively, use an environment variable:
 
 ```bash
 # Windows (PowerShell)
@@ -33,6 +40,8 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
 # macOS / Linux
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
+
+The environment variable takes priority over the settings file if both are set.
 
 ## Usage
 
@@ -79,6 +88,15 @@ dotnet run --project src/aica -- "list all TODO comments in the codebase"
 | `/help` | Show command reference |
 | `quit` / `exit` | Exit the agent |
 | `Ctrl+C` | Cancel the current request |
+
+### Managing your API key
+
+```bash
+aica config set api-key sk-ant-...   # save key to ~/.aica/settings.json
+aica config set model claude-opus-4-7 # set a default model
+aica config show                      # show current config and file path
+aica config unset api-key             # remove the stored key
+```
 
 ## Tools
 
