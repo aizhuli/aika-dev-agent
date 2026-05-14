@@ -6,11 +6,10 @@ namespace Aica.Repl;
 
 public class ReplLoop(AppConfig config)
 {
-    private AgentService? _agent;
+    private AgentService _agent = new(config, new ToolRegistry());
 
     public async Task RunAsync(string? initialPrompt)
     {
-        _agent = new AgentService(config, new ToolRegistry());
         PrintWelcome();
 
         if (initialPrompt is not null)
@@ -33,6 +32,19 @@ public class ReplLoop(AppConfig config)
                 break;
             }
 
+            if (input is "/clear")
+            {
+                _agent = new AgentService(config, new ToolRegistry());
+                AnsiConsole.MarkupLine("[grey]History cleared.[/]\n");
+                continue;
+            }
+
+            if (input is "/help")
+            {
+                PrintHelp();
+                continue;
+            }
+
             await HandleInputAsync(input);
         }
     }
@@ -40,19 +52,22 @@ public class ReplLoop(AppConfig config)
     private async Task HandleInputAsync(string input)
     {
         AnsiConsole.WriteLine();
+
+        using var cts = new CancellationTokenSource();
+
+        void OnCancel(object? _, ConsoleCancelEventArgs e)
+        {
+            e.Cancel = true;
+            cts.Cancel();
+        }
+
+        Console.CancelKeyPress += OnCancel;
+        AnsiConsole.MarkupLine("[dim]Thinking…[/]");
+
         try
         {
-            string response = "";
-            int inputTokens = 0, outputTokens = 0;
-
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .SpinnerStyle(Style.Parse("green"))
-                .StartAsync("Thinking…", async ctx =>
-                {
-                    (response, inputTokens, outputTokens) =
-                        await _agent!.RunTurnAsync(input);
-                });
+            var (response, inputTokens, outputTokens) =
+                await _agent.RunTurnAsync(input, cts.Token);
 
             if (!string.IsNullOrWhiteSpace(response))
             {
@@ -61,15 +76,20 @@ public class ReplLoop(AppConfig config)
             }
 
             AnsiConsole.MarkupLine(
-                $"\n[dim]tokens: in={inputTokens:N0} out={outputTokens:N0}[/]");
+                $"\n[dim]tokens in={inputTokens:N0} out={outputTokens:N0}  " +
+                $"turn={_agent.TurnCount}[/]");
         }
         catch (OperationCanceledException)
         {
-            AnsiConsole.MarkupLine("[yellow]Cancelled.[/]");
+            AnsiConsole.MarkupLine("\n[yellow]Cancelled.[/]");
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
+            AnsiConsole.MarkupLine($"\n[red]Error:[/] {Markup.Escape(ex.Message)}");
+        }
+        finally
+        {
+            Console.CancelKeyPress -= OnCancel;
         }
 
         AnsiConsole.WriteLine();
@@ -80,6 +100,20 @@ public class ReplLoop(AppConfig config)
         AnsiConsole.Write(new FigletText("aica").Color(Color.Green));
         AnsiConsole.MarkupLine($"[grey]workdir[/]  [bold]{Markup.Escape(config.WorkingDirectory)}[/]");
         AnsiConsole.MarkupLine($"[grey]model  [/]  [bold]{config.Model}[/]");
-        AnsiConsole.MarkupLine("[grey]Type [bold]quit[/] to exit.[/]\n");
+        AnsiConsole.MarkupLine("[grey]Type [bold]/help[/] for commands or [bold]quit[/] to exit.[/]\n");
+    }
+
+    private static void PrintHelp()
+    {
+        var table = new Table().NoBorder().HideHeaders();
+        table.AddColumn("cmd");
+        table.AddColumn("desc");
+        table.AddRow("[bold]/clear[/]", "Reset conversation history");
+        table.AddRow("[bold]/help[/]",  "Show this message");
+        table.AddRow("[bold]quit[/]",   "Exit");
+        table.AddRow("[bold]Ctrl+C[/]", "Cancel the current request");
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
     }
 }
