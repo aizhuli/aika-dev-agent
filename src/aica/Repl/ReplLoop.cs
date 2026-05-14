@@ -1,11 +1,16 @@
+using Aica.Agent;
+using Aica.Tools;
 using Spectre.Console;
 
 namespace Aica.Repl;
 
 public class ReplLoop(AppConfig config)
 {
+    private AgentService? _agent;
+
     public async Task RunAsync(string? initialPrompt)
     {
+        _agent = new AgentService(config, new ToolRegistry());
         PrintWelcome();
 
         if (initialPrompt is not null)
@@ -34,9 +39,40 @@ public class ReplLoop(AppConfig config)
 
     private async Task HandleInputAsync(string input)
     {
-        // Phase 3: connect to Claude agent loop
-        AnsiConsole.MarkupLine($"\n[grey][[Agent not yet connected — coming in Phase 3]][/]\n");
-        await Task.CompletedTask;
+        AnsiConsole.WriteLine();
+        try
+        {
+            string response = "";
+            int inputTokens = 0, outputTokens = 0;
+
+            await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse("green"))
+                .StartAsync("Thinking…", async ctx =>
+                {
+                    (response, inputTokens, outputTokens) =
+                        await _agent!.RunTurnAsync(input);
+                });
+
+            if (!string.IsNullOrWhiteSpace(response))
+            {
+                AnsiConsole.WriteLine();
+                Console.WriteLine(response);
+            }
+
+            AnsiConsole.MarkupLine(
+                $"\n[dim]tokens: in={inputTokens:N0} out={outputTokens:N0}[/]");
+        }
+        catch (OperationCanceledException)
+        {
+            AnsiConsole.MarkupLine("[yellow]Cancelled.[/]");
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
+        }
+
+        AnsiConsole.WriteLine();
     }
 
     private void PrintWelcome()
