@@ -29,17 +29,20 @@ public class ExecuteCommandTool : ITool
         var timeoutSeconds = Math.Min(input?["timeout_seconds"]?.GetValue<int>() ?? 30, 300);
 
         var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        var shell = isWindows ? "cmd.exe" : "/bin/sh";
-        var shellArgs = isWindows ? $"/c {command}" : $"-c \"{command}\"";
 
-        var psi = new ProcessStartInfo(shell, shellArgs)
+        // Use ArgumentList to avoid shell injection: each element is passed verbatim
+        // rather than being concatenated into a string that the shell re-parses.
+        var psi = new ProcessStartInfo
         {
+            FileName = isWindows ? "cmd.exe" : "/bin/sh",
             WorkingDirectory = config.WorkingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        psi.ArgumentList.Add(isWindows ? "/c" : "-c");
+        psi.ArgumentList.Add(command);
 
         using var process = new Process { StartInfo = psi };
         var stdout = new StringBuilder();

@@ -9,7 +9,7 @@ namespace Aica.Agent;
 
 public class AgentService
 {
-    private static readonly HashSet<string> DestructiveTools = ["delete_file", "execute_command"];
+    private static readonly HashSet<string> DestructiveTools = ["delete_file", "execute_command", "write_file"];
 
     private readonly AnthropicClient _client;
     private readonly AppConfig _config;
@@ -43,7 +43,7 @@ public class AgentService
 
         while (true)
         {
-            var response = await _client.Messages.GetClaudeMessageAsync(new MessageParameters
+            var response = await GetResponseWithRetryAsync(new MessageParameters
             {
                 Model = _config.Model,
                 MaxTokens = 8096,
@@ -107,10 +107,24 @@ public class AgentService
         if (_config.AutoApprove || !DestructiveTools.Contains(toolName))
             return Task.FromResult(true);
 
+        // write_file only needs confirmation when overwriting an existing file
+        if (toolName == "write_file")
+        {
+            var filePath = input?["path"]?.GetValue<string>();
+            if (filePath is null) return Task.FromResult(true);
+            try
+            {
+                var fullPath = PathSandbox.Resolve(_config.WorkingDirectory, filePath);
+                if (!File.Exists(fullPath)) return Task.FromResult(true);
+            }
+            catch { return Task.FromResult(true); }
+        }
+
         var detail = toolName switch
         {
             "delete_file"     => input?["path"]?.GetValue<string>() ?? "",
             "execute_command" => input?["command"]?.GetValue<string>() ?? "",
+            "write_file"      => $"overwrite {input?["path"]?.GetValue<string>() ?? ""}",
             _                 => ""
         };
 
@@ -162,6 +176,31 @@ public class AgentService
         var preview = result.Content.ReplaceLineEndings(" ").Trim();
         if (preview.Length > 120) preview = preview[..120] + "…";
         AnsiConsole.MarkupLine($"[{color}]  {icon}[/] [dim]{Markup.Escape(preview)}[/]");
+    }
+
+    private async Task<MessageResponse> GetResponseWithRetryAsync(MessageParameters parameters, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+        var delay = TimeSpan.FromSeconds(2);
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                return await _client.Messages.GetClaudeMessageAsync(parameters, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                AnsiConsole.MarkupLine($"[yellow]  ⚠ API error (attempt {attempt}/{maxAttempts}): {Markup.Escape(ex.Message)} — retrying in {delay.TotalSeconds}s[/]");
+                await Task.Delay(delay, ct);
+                delay *= 2;
+            }
+        }
+        // Final attempt — let exception propagate
+        return await _client.Messages.GetClaudeMessageAsync(parameters, ct);
     }
 
     private static Anthropic.SDK.Common.Tool ToAnthropicTool(ITool tool) =>

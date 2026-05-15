@@ -40,6 +40,6 @@ public class DeleteFileTool : ITool
             return Task.FromResult(ToolResult.Ok($"Deleted directory: {path}"));
         }
 
-        return Task.FromResult(ToolResult.Error($"Not found: {path}"));
+        return Task.FromResult(ToolResult.Error($"File or directory not found: {path}"));
     }
 }

@@ -29,11 +29,18 @@ public class ListDirectoryTool : ITool
         if (!Directory.Exists(fullPath))
             return Task.FromResult(ToolResult.Error($"Directory not found: {path}"));
 
+        const int MaxEntries = 500;
         var sb = new StringBuilder();
+        var count = 0;
+
         foreach (var dir in Directory.EnumerateDirectories(fullPath).Order())
+        {
+            if (count++ >= MaxEntries) break;
             sb.AppendLine($"[dir]  {Path.GetFileName(dir)}/");
+        }
         foreach (var file in Directory.EnumerateFiles(fullPath).Order())
         {
+            if (count++ >= MaxEntries) { sb.AppendLine($"... (truncated at {MaxEntries} entries)"); break; }
             var info = new FileInfo(file);
             sb.AppendLine($"[file] {info.Name} ({FormatSize(info.Length)})");
         }

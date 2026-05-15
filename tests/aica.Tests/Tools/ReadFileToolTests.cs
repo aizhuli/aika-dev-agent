@@ -44,4 +44,16 @@ public class ReadFileToolTests : ToolTestBase
         Assert.True(result.IsError);
         Assert.Contains("outside", result.Content, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task RejectsFileLargerThan10MB()
+    {
+        var path = Path.Combine(TempDir, "big.bin");
+        using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+            fs.SetLength(11 * 1024 * 1024); // 11 MB sparse file
+
+        var result = await _tool.ExecuteAsync(Args(("path", "big.bin")), Config);
+        Assert.True(result.IsError);
+        Assert.Contains("large", result.Content, StringComparison.OrdinalIgnoreCase);
+    }
 }

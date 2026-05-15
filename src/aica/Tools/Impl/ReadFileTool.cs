@@ -33,6 +33,11 @@ public class ReadFileTool : ITool
         if (!File.Exists(fullPath))
             return ToolResult.Error($"File not found: {path}");
 
+        const long MaxBytes = 10 * 1024 * 1024; // 10 MB
+        var fileInfo = new FileInfo(fullPath);
+        if (fileInfo.Length > MaxBytes)
+            return ToolResult.Error($"File too large ({fileInfo.Length / 1024 / 1024}MB). Use offset/limit to read specific sections.");
+
         var offset = input?["offset"]?.GetValue<int>() ?? 1;
         var limit = input?["limit"]?.GetValue<int>();
 
